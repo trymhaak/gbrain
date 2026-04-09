@@ -55,6 +55,16 @@ migrate, setup, install.
 
 `bun build --compile --outfile bin/gbrain src/cli.ts`
 
+## Pre-ship requirements
+
+Before shipping (/ship) or reviewing (/review), always run the full test suite:
+- `bun test` — unit tests (no database required)
+- `docker compose -f docker-compose.test.yml up -d` then
+  `DATABASE_URL=postgresql://postgres:postgres@localhost:5434/gbrain_test bun run test:e2e`
+  — E2E tests against real Postgres+pgvector
+
+Both must pass. Do not ship with failing E2E tests.
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
