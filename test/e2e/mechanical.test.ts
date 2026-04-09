@@ -809,56 +809,109 @@ describeE2E('E2E: Doctor Command', () => {
 // ─────────────────────────────────────────────────────────────────
 
 describeE2E('E2E: Parallel Import', () => {
-  beforeAll(async () => {
-    await setupDB();
-  });
   afterAll(teardownDB);
 
   const cliCwd = join(import.meta.dir, '../..');
   const cliEnv = () => ({ ...process.env, DATABASE_URL: process.env.DATABASE_URL! });
 
-  test('import with --workers 2 produces same results as sequential', () => {
-    // First: sequential import
-    const seq = Bun.spawnSync({
+  // Store sequential baseline for comparison
+  let seqPageCount: number;
+  let seqChunkCount: number;
+  let seqPageSlugs: string[];
+
+  test('sequential baseline: import all fixtures', async () => {
+    await setupDB();
+    const result = Bun.spawnSync({
       cmd: ['bun', 'run', 'src/cli.ts', 'import', '--no-embed', FIXTURES_PATH],
       cwd: cliCwd,
       env: cliEnv(),
       timeout: 30_000,
     });
-    expect(seq.exitCode).toBe(0);
+    expect(result.exitCode).toBe(0);
 
-    // Get count after sequential
-    const stats1 = Bun.spawnSync({
-      cmd: ['bun', 'run', 'src/cli.ts', 'stats'],
-      cwd: cliCwd,
-      env: cliEnv(),
-      timeout: 15_000,
-    });
-    const stdout1 = new TextDecoder().decode(stats1.stdout);
+    const stats = await callOp('get_stats') as any;
+    seqPageCount = stats.page_count;
+    seqChunkCount = stats.chunk_count;
 
-    // Re-init (truncate)
-    setupDB();
+    const pages = await callOp('list_pages', { limit: 200 }) as any[];
+    seqPageSlugs = pages.map((p: any) => p.slug).sort();
 
-    // Then: parallel import
-    const par = Bun.spawnSync({
+    expect(seqPageCount).toBeGreaterThan(0);
+    expect(seqChunkCount).toBeGreaterThan(0);
+  });
+
+  test('parallel import with --workers 2 matches sequential page count', async () => {
+    await setupDB();
+    const result = Bun.spawnSync({
       cmd: ['bun', 'run', 'src/cli.ts', 'import', '--no-embed', '--workers', '2', FIXTURES_PATH],
       cwd: cliCwd,
       env: cliEnv(),
       timeout: 30_000,
     });
-    expect(par.exitCode).toBe(0);
+    expect(result.exitCode).toBe(0);
 
-    // Get count after parallel
-    const stats2 = Bun.spawnSync({
-      cmd: ['bun', 'run', 'src/cli.ts', 'stats'],
+    const stats = await callOp('get_stats') as any;
+    expect(stats.page_count).toBe(seqPageCount);
+  });
+
+  test('parallel import has same chunk count (no duplicates)', async () => {
+    const stats = await callOp('get_stats') as any;
+    expect(stats.chunk_count).toBe(seqChunkCount);
+  });
+
+  test('parallel import has same page slugs', async () => {
+    const pages = await callOp('list_pages', { limit: 200 }) as any[];
+    const parSlugs = pages.map((p: any) => p.slug).sort();
+    expect(parSlugs).toEqual(seqPageSlugs);
+  });
+
+  test('no duplicate pages from concurrent writes', async () => {
+    const conn = getConn();
+    const dupes = await conn.unsafe(`
+      SELECT slug, count(*) as n FROM pages GROUP BY slug HAVING count(*) > 1
+    `);
+    expect(dupes.length).toBe(0);
+  });
+
+  test('no duplicate chunks from concurrent writes', async () => {
+    const conn = getConn();
+    const dupes = await conn.unsafe(`
+      SELECT page_id, chunk_index, count(*) as n
+      FROM content_chunks
+      GROUP BY page_id, chunk_index
+      HAVING count(*) > 1
+    `);
+    expect(dupes.length).toBe(0);
+  });
+
+  test('parallel import with --workers 4 also works', async () => {
+    await setupDB();
+    const result = Bun.spawnSync({
+      cmd: ['bun', 'run', 'src/cli.ts', 'import', '--no-embed', '--workers', '4', FIXTURES_PATH],
       cwd: cliCwd,
       env: cliEnv(),
-      timeout: 15_000,
+      timeout: 30_000,
     });
-    const stdout2 = new TextDecoder().decode(stats2.stdout);
+    expect(result.exitCode).toBe(0);
 
-    // Both should produce the same output
-    expect(stdout2).toBe(stdout1);
+    const stats = await callOp('get_stats') as any;
+    expect(stats.page_count).toBe(seqPageCount);
+    expect(stats.chunk_count).toBe(seqChunkCount);
+  });
+
+  test('re-import with workers is idempotent', async () => {
+    // Import again on top of existing data
+    const result = Bun.spawnSync({
+      cmd: ['bun', 'run', 'src/cli.ts', 'import', '--no-embed', '--workers', '2', FIXTURES_PATH],
+      cwd: cliCwd,
+      env: cliEnv(),
+      timeout: 30_000,
+    });
+    expect(result.exitCode).toBe(0);
+
+    const stats = await callOp('get_stats') as any;
+    expect(stats.page_count).toBe(seqPageCount);
+    expect(stats.chunk_count).toBe(seqChunkCount);
   });
 });
 
