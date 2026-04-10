@@ -130,6 +130,20 @@ reads this during upgrades to suggest new schema additions without re-suggesting
 things the user already declined. The setup skill writes the initial state during
 Phase C/E. Never modify a user's custom directories or re-suggest declined ones.
 
+## GitHub Actions SHA maintenance
+
+All GitHub Actions in `.github/workflows/` are pinned to commit SHAs. Before shipping
+(`/ship`) or reviewing (`/review`), check for stale pins and update them:
+
+```bash
+for action in actions/checkout oven-sh/setup-bun actions/upload-artifact actions/download-artifact softprops/action-gh-release gitleaks/gitleaks-action; do
+  tag=$(grep -r "$action@" .github/workflows/ | head -1 | grep -o '#.*' | tr -d '# ')
+  [ -n "$tag" ] && echo "$action@$tag: $(gh api repos/$action/git/ref/tags/$tag --jq .object.sha 2>/dev/null)"
+done
+```
+
+If any SHA differs from what's in the workflow files, update the pin and version comment.
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
