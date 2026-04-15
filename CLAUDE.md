@@ -9,7 +9,7 @@ cron scheduling, reports, identity, and access control.
 
 ## Architecture
 
-Contract-first: `src/core/operations.ts` defines ~30 shared operations. CLI and MCP
+Contract-first: `src/core/operations.ts` defines ~36 shared operations. CLI and MCP
 server are both generated from this single source. Engine factory (`src/core/engine-factory.ts`)
 dynamically imports the configured engine (`'pglite'` or `'postgres'`). Skills are fat
 markdown files (tool-agnostic, work with both CLI and plugin contexts).
@@ -19,7 +19,7 @@ markdown files (tool-agnostic, work with both CLI and plugin contexts).
 - `src/core/operations.ts` — Contract-first operation definitions (the foundation)
 - `src/core/engine.ts` — Pluggable engine interface (BrainEngine)
 - `src/core/engine-factory.ts` — Engine factory with dynamic imports (`'pglite'` | `'postgres'`)
-- `src/core/pglite-engine.ts` — PGLite (embedded Postgres 17.5 via WASM) implementation, all 37 BrainEngine methods
+- `src/core/pglite-engine.ts` — PGLite (embedded Postgres 17.5 via WASM) implementation, all 38 BrainEngine methods
 - `src/core/pglite-schema.ts` — PGLite-specific DDL (pgvector, pg_trgm, triggers)
 - `src/core/postgres-engine.ts` — Postgres + pgvector implementation (Supabase / self-hosted)
 - `src/core/utils.ts` — Shared SQL utilities extracted from postgres-engine.ts
@@ -42,6 +42,10 @@ markdown files (tool-agnostic, work with both CLI and plugin contexts).
 - `src/core/transcription.ts` — Audio transcription: Groq Whisper (default), OpenAI fallback, ffmpeg segmentation for >25MB
 - `src/core/enrichment-service.ts` — Global enrichment service: entity slug generation, tier auto-escalation, batch throttling
 - `src/core/data-research.ts` — Recipe validation, field extraction (MRR/ARR regex), dedup, tracker parsing, HTML stripping
+- `src/core/minions/` — Minions job queue: BullMQ-inspired, Postgres-native (queue, worker, backoff, types)
+- `src/core/minions/queue.ts` — MinionQueue class (submit, claim, complete, fail, stall detection, parent-child)
+- `src/core/minions/worker.ts` — MinionWorker class (handler registry, lock renewal, graceful shutdown)
+- `src/commands/jobs.ts` — `gbrain jobs` CLI subcommands + `gbrain jobs work` daemon
 - `src/mcp/server.ts` — MCP stdio server (generated from operations)
 - `src/commands/auth.ts` — Standalone token management (create/list/revoke/test)
 - `src/commands/upgrade.ts` — Self-update CLI with post-upgrade feature discovery
@@ -100,9 +104,18 @@ Key commands added in v0.7:
 - `gbrain init` — defaults to PGLite (no Supabase needed), scans repo size, suggests Supabase for 1000+ files
 - `gbrain migrate --to supabase` / `gbrain migrate --to pglite` — bidirectional engine migration
 
+Key commands added for Minions (job queue):
+- `gbrain jobs submit <name> [--params JSON] [--follow] [--dry-run]` — submit a background job
+- `gbrain jobs list [--status S] [--queue Q]` — list jobs with filters
+- `gbrain jobs get <id>` — job details with attempt history
+- `gbrain jobs cancel/retry/delete <id>` — manage job lifecycle
+- `gbrain jobs prune [--older-than 30d]` — clean old completed/dead jobs
+- `gbrain jobs stats` — job health dashboard
+- `gbrain jobs work [--queue Q] [--concurrency N]` — start worker daemon (Postgres only)
+
 ## Testing
 
-`bun test` runs all tests (34 unit test files + 5 E2E test files). Unit tests run
+`bun test` runs all tests (45 unit test files + 5 E2E test files). Unit tests run
 without a database. E2E tests skip gracefully when `DATABASE_URL` is not set.
 
 Unit tests: `test/markdown.test.ts` (frontmatter parsing), `test/chunkers/recursive.test.ts`
@@ -133,7 +146,8 @@ parity), `test/cli.test.ts` (CLI structure), `test/config.test.ts` (config redac
 `test/fail-improve.test.ts` (deterministic/LLM cascade, JSONL logging, test generation, rotation),
 `test/transcription.test.ts` (provider detection, format validation, API key errors),
 `test/enrichment-service.test.ts` (entity slugification, extraction, tier escalation),
-`test/data-research.test.ts` (recipe validation, MRR/ARR extraction, dedup, tracker parsing, HTML stripping).
+`test/data-research.test.ts` (recipe validation, MRR/ARR extraction, dedup, tracker parsing, HTML stripping),
+`test/minions.test.ts` (Minions job queue: CRUD, state machine, backoff, stall detection, dependencies, worker lifecycle, lock management, claim mechanics).
 
 E2E tests (`test/e2e/`): Run against real Postgres+pgvector. Require `DATABASE_URL`.
 - `bun run test:e2e` runs Tier 1 (mechanical, all operations, no API keys)

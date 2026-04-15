@@ -6,6 +6,8 @@ All notable changes to GBrain will be documented in this file.
 
 ### Added
 
+- **Background jobs that don't die.** Minions is a BullMQ-inspired job queue built directly into GBrain. No Redis. No external dependencies. Submit `gbrain jobs submit embed --follow` and it runs with automatic retry, exponential backoff, and stall detection. Kill the process mid-job? Stall detection catches it and requeues. Run `gbrain jobs work` to start a persistent worker daemon that processes jobs from the queue. Jobs are first-class: submit, list, cancel, retry, prune, stats, all from the CLI or MCP. Your agent can now run long operations (14K+ page embeds, bulk enrichment) as durable background jobs instead of fragile inline commands.
+
 - **Your agent now has 24 skills, not 8.** 16 new brain skills generalized from a production deployment with 14,700+ pages. Signal detection, brain-first lookup, content ingestion (articles, video, meetings), entity enrichment, task management, cron scheduling, reports, and cross-modal review. All shipped as fat markdown files your agent reads on demand.
 
 - **Signal detector fires on every message.** A cheap sub-agent spawns in parallel to capture original thinking and entity mentions. Ideas get preserved with exact phrasing. Entities get brain pages. The brain compounds on autopilot.
