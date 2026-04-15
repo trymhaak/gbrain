@@ -1,12 +1,10 @@
 # GBrain
 
-GStack teaches your agent how to code. GBrain teaches it everything else.
+Your AI agent is smart but forgetful. GBrain gives it a brain.
 
-Install GBrain on an [OpenClaw](https://openclaw.ai) or [Hermes](https://github.com/NousResearch/hermes-agent) agent and it gains persistent memory, signal detection, content ingestion, entity enrichment, task management, cron scheduling, access control, and a voice pipeline. 24 skills, battle-tested on a production brain with 14,700+ pages. Your agent gets smart on day one.
+Meetings, emails, tweets, calendar events, voice calls, original ideas... all of it flows into a searchable knowledge base that your agent reads before every response and writes to after every conversation. 24 skills handle signal detection, content ingestion, entity enrichment, task management, cron scheduling, access control, and voice. The agent gets smarter every day.
 
 > **~30 minutes to a fully working brain.** Your agent does the work. Database ready in 2 seconds (PGLite, no server). You just answer questions about API keys.
->
-> **Requires a frontier model.** Tested with **Claude Opus 4.6** and **GPT-5.4 Thinking**.
 
 ## Install
 
@@ -17,66 +15,14 @@ GBrain is designed to be installed and operated by an AI agent. If you don't hav
 - **[OpenClaw](https://openclaw.ai)** ... Deploy [AlphaClaw on Render](https://render.com/deploy?repo=https://github.com/chrysb/alphaclaw) (one click, 8GB+ RAM)
 - **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** ... Deploy on [Railway](https://github.com/praveen-ks-2001/hermes-agent-template) (one click)
 
-Copy this block into your agent. It reads the docs, does the work, asks you for API keys.
+Paste this into your agent:
 
 ```
-INSTALL:
-
-  git clone https://github.com/garrytan/gbrain.git ~/gbrain && cd ~/gbrain
-  curl -fsSL https://bun.sh/install | bash
-  export PATH="$HOME/.bun/bin:$PATH"
-  bun install && bun link
-  Verify: gbrain --version
-
-API KEYS — ask the user for these:
-
-  export OPENAI_API_KEY=sk-...          # required for vector search
-  export ANTHROPIC_API_KEY=sk-ant-...   # optional, improves search quality
-  Save to shell profile or .env.
-
-SET UP THE BRAIN:
-
-  gbrain init                           # PGLite, no server needed
-  Verify: gbrain doctor --json          # all checks pass
-
-  The user's markdown files are SEPARATE from this tool repo.
-  Ask where their files are, or create a new brain repo:
-  mkdir -p ~/brain && cd ~/brain && git init
-
-  Read ~/gbrain/docs/GBRAIN_RECOMMENDED_SCHEMA.md — set up the MECE
-  directory structure (people/, companies/, concepts/, etc.)
-
-  gbrain import ~/brain/ --no-embed     # import markdown files
-  gbrain embed --stale                  # generate vector embeddings
-  gbrain query "key themes across these documents?"
-
-SKILLS — read and adopt these from ~/gbrain/:
-
-  skills/RESOLVER.md — the skill dispatcher. Read it to know which
-    skill to use for any task. This is the playbook.
-
-  skills/signal-detector/SKILL.md — fire this on EVERY message.
-    Captures ideas + entities in parallel. The brain compounds.
-
-  skills/brain-ops/SKILL.md — brain-first lookup on every response.
-    Check the brain before any external API.
-
-  Run soul-audit to customize agent identity (optional):
-    skills/soul-audit/SKILL.md — generates SOUL.md, USER.md,
-    ACCESS_POLICY.md, HEARTBEAT.md from your answers.
-
-RECURRING JOBS — set up using your platform's scheduler:
-
-  - Live sync (every 15 min): gbrain sync --repo ~/brain && gbrain embed --stale
-  - Auto-update (daily): gbrain check-update --json
-  - Dream cycle (nightly): docs/guides/cron-schedule.md
-  - Weekly: gbrain doctor --json && gbrain embed --stale
-
-INTEGRATIONS — run gbrain integrations list. Each recipe is a
-  self-contained installer. Ask which ones the user wants.
-
-UPGRADE: cd ~/gbrain && git pull origin main && bun install
+Retrieve and follow the instructions at:
+https://raw.githubusercontent.com/garrytan/gbrain/master/INSTALL_FOR_AGENTS.md
 ```
+
+That's it. The agent clones the repo, installs GBrain, sets up the brain, loads 24 skills, and configures recurring jobs. You answer a few questions about API keys. ~30 minutes.
 
 ### Standalone CLI (no agent)
 
