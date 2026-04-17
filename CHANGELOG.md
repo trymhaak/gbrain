@@ -2,6 +2,50 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.11.0] - 2026-04-18
+
+### Added — Minions v7 (agent orchestration primitives)
+
+Minions was a job queue. Now it's an agent runtime. Everything your orchestrator needs to fan out work across sub-agents without turning them into orphans or rate-limit disasters.
+
+- **Depth tracking and `max_spawn_depth`.** Runaway recursion is a real prod failure. Children inherit `depth = parent.depth + 1` and submit rejects past a configurable cap (default 5). Your orchestrator can no longer spawn itself into an infinite tree by accident.
+
+- **Per-parent child cap (`max_children`).** Stop spawn storms before they hit OpenAI's rate limit. Set `max_children: 10` on a parent job and the 11th submit throws. Enforced via `SELECT ... FOR UPDATE` on the parent row so concurrent submits can't both slip through.
+
+- **Per-job wall-clock timeout (`timeout_ms`).** The #2 daily OpenClaw pain is "agent stops responding" ... long handler, token bloat, no clock. Now every job can declare a ceiling. `handleTimeouts()` dead-letters expired rows; a per-job `setTimeout` fires AbortSignal as a best-effort handler interrupt. No retry on timeout, terminal by design.
+
+- **Cascade cancel via recursive CTE.** `cancelJob()` walks the full descendant tree in a single statement and cancels everything. Grandchild orphan bug is gone. Re-parented descendants (via `removeChildDependency`) are naturally excluded. Depth cap of 100 on the CTE as runaway safety.
+
+- **Idempotency keys.** Add `idempotency_key: 'sync:2026-04-18'` to your submit and only one job per key ever runs. PG unique partial index enforces it at the DB layer, two concurrent pods submitting the same key collapse to one row. No more "did my cron fire twice?" anxiety.
+
+- **Child to parent `child_done` inbox.** When a child completes, the parent gets `{type:'child_done', child_id, job_name, result}` posted to its inbox in the same transaction as the token rollup. Fan-in for free. `readChildCompletions(parent_id)` filters the inbox by message type with an optional `since` cursor. Works as the primitive for future `waitForChildren(n)` helpers.
+
+- **`removeOnComplete` / `removeOnFail`.** BullMQ convenience. Completed jobs don't bloat your `minion_jobs` table forever. Opt in per-job, the `child_done` message survives because it lives in the *parent's* inbox, not the child's.
+
+- **Attachment manifest.** New `minion_attachments` table for binary payloads attached to jobs. Validation catches path traversal (`../`, `/`, `\`, null byte), oversize (5 MiB default, raiseable), invalid base64, and duplicate filenames per job. DB-level `UNIQUE (job_id, filename)` defends against concurrent addAttachment races. `storage_uri TEXT` column forward-compat for future S3 offload.
+
+- **Cooperative AbortSignal.** Pause or cascade-cancel clears the job's `lock_token`, the running handler's next lock renewal fails and fires `ctx.signal.abort()`. Handlers that respect AbortSignal stop cleanly. Handlers that ignore it get dead-lettered by the DB-side `handleTimeouts`, either way, the row status is correct.
+
+- **Transactional correctness fixes.** `completeJob()` and `failJob()` now wrap in `engine.transaction()`. Parent hook invocations (`resolveParent`, `failParent`, `removeChildDependency`) fold into the same transaction so a process crash between child-update and parent-update can't strand the parent in `waiting-children`. Fixed a pre-existing bug where `add()` was inverting child/parent status (child got `waiting-children`, parent stayed `waiting`, making the child unclaimable until a manual UPDATE). Tests that worked around it are now cleaned up.
+
+- **Migration v7 (`agent_parity_layer`).** Additive schema: new columns on `minion_jobs` (all defaulted, nullable where appropriate), new `minion_attachments` table, 3 partial indexes for bounded scans (`idx_minion_jobs_timeout`, `idx_minion_jobs_parent_status`, `uniq_minion_jobs_idempotency`). Existing installs pick it up on next `gbrain init`, no manual action required.
+
+### Fixed
+
+- **JSONB double-encode bug.** When writing to JSONB columns via `engine.executeRaw(sql, params)`, postgres.js auto-JSON-encodes parameters. Calling `JSON.stringify(obj)` first stored a JSON string literal, making `jsonb_typeof = string` and breaking `payload->>'key'` queries silently. Fixed in three call sites (`child_done` inbox post, `updateProgress`, `sendMessage`). PGLite tolerated both forms so the unit tests missed it, only a real-Postgres E2E with the `payload->>` operator caught it.
+
+- **Sibling completion race.** Under READ COMMITTED, two grandchildren completing concurrently each saw the other as still-active in their pre-commit snapshot, so neither flipped the parent out of `waiting-children`. Fixed by taking `SELECT ... FOR UPDATE` on the parent row at the start of `completeJob` and `failJob` transactions. Siblings now serialize on the parent lock, second commit sees the first as completed and correctly advances the parent.
+
+### Tests
+
+- **~33 new tests in `test/minions.test.ts`** covering depth cap, per-parent child cap, timeout dead-letter, cascade cancel (including the re-parent edge case), `removeOnComplete` / `removeOnFail`, idempotency (single + concurrent), `child_done` inbox (posted in txn + survives child removeOnComplete + since cursor), attachment validation (oversize, path traversal, null byte, duplicates, base64), AbortSignal firing on pause mid-handler, catch-block skipping `failJob` when aborted, worker in-flight bookkeeping, token-rollup guard when parent already terminal, setTimeout safety-net cleanup.
+
+- **`test/e2e/minions-concurrency.test.ts`** ... two worker instances against real Postgres, 20 jobs, zero double-claims. The only test that actually verifies `FOR UPDATE SKIP LOCKED` under real concurrency. PGLite can't prove this.
+
+- **`test/e2e/minions-resilience.test.ts`** ... 5 tests covering the 6 OpenClaw daily pains: spawn storms, agent stall, forgotten dispatches, cascade cancel, deep tree fan-in with grandchild completions. Every pain has a test that fails if the primitive regresses.
+
+- **1066 unit + 105 E2E = 1171 tests passing** before this ship. The parity layer isn't just planned, it's pinned down.
+
 ## [0.10.2] - 2026-04-17
 
 ### Security — Wave 3 (9 vulnerabilities closed)
