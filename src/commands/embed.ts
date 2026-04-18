@@ -1,5 +1,5 @@
 import type { BrainEngine } from '../core/engine.ts';
-import { embedBatch } from '../core/embedding.ts';
+import { embedBatch, EMBEDDING_MODEL } from '../core/embedding.ts';
 import type { ChunkInput } from '../core/types.ts';
 import { chunkText } from '../core/chunkers/recursive.ts';
 
@@ -109,7 +109,8 @@ async function embedPage(engine: BrainEngine, slug: string) {
     chunk_index: c.chunk_index,
     chunk_text: c.chunk_text,
     chunk_source: c.chunk_source,
-    embedding: embeddingMap.get(c.chunk_index),
+    embedding: embeddingMap.get(c.chunk_index) ?? c.embedding,
+    model: embeddingMap.has(c.chunk_index) ? EMBEDDING_MODEL : c.model,
     token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
   }));
 
@@ -157,7 +158,8 @@ async function embedAll(engine: BrainEngine, staleOnly: boolean) {
         chunk_index: c.chunk_index,
         chunk_text: c.chunk_text,
         chunk_source: c.chunk_source,
-        embedding: embeddingMap.get(c.chunk_index) ?? undefined,
+        embedding: embeddingMap.get(c.chunk_index) ?? c.embedding,
+        model: embeddingMap.has(c.chunk_index) ? EMBEDDING_MODEL : c.model,
         token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
       }));
       await engine.upsertChunks(page.slug, updated);

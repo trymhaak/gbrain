@@ -1,16 +1,40 @@
 /**
  * Embedding Service
- * Ported from production Ruby implementation (embedding_service.rb, 190 LOC)
+ * Supports OpenAI by default, and Voyage when VOYAGE_API_KEY is present.
  *
- * OpenAI text-embedding-3-large at 1536 dimensions.
+ * Current storage schema is vector(1536), so Voyage defaults to voyage-large-2
+ * to avoid a database migration during local bootstrap.
  * Retry with exponential backoff (4s base, 120s cap, 5 retries).
  * 8000 character input truncation.
  */
 
 import OpenAI from 'openai';
 
-const MODEL = 'text-embedding-3-large';
+type EmbeddingProvider = 'openai' | 'voyage';
+
+interface EmbeddingConfig {
+  provider: EmbeddingProvider;
+  model: string;
+  dimensions: number;
+  enabled: boolean;
+}
+
 const DIMENSIONS = 1536;
+
+export function resolveEmbeddingConfig(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): EmbeddingConfig {
+  const provider: EmbeddingProvider = env.VOYAGE_API_KEY ? 'voyage' : 'openai';
+
+  return {
+    provider,
+    model: provider === 'voyage' ? 'voyage-large-2' : 'text-embedding-3-large',
+    dimensions: DIMENSIONS,
+    enabled: Boolean(env.VOYAGE_API_KEY || env.OPENAI_API_KEY),
+  };
+}
+
+const CONFIG = resolveEmbeddingConfig();
+const PROVIDER = CONFIG.provider;
+const MODEL = CONFIG.model;
 const MAX_CHARS = 8000;
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 4000;
@@ -21,9 +45,18 @@ let client: OpenAI | null = null;
 
 function getClient(): OpenAI {
   if (!client) {
-    client = new OpenAI();
+    client = new OpenAI(PROVIDER === 'voyage'
+      ? {
+          apiKey: process.env.VOYAGE_API_KEY,
+          baseURL: 'https://api.voyageai.com/v1',
+        }
+      : undefined);
   }
   return client;
+}
+
+export function embeddingsEnabled(): boolean {
+  return resolveEmbeddingConfig().enabled;
 }
 
 export async function embed(text: string): Promise<Float32Array> {
@@ -49,11 +82,18 @@ export async function embedBatch(texts: string[]): Promise<Float32Array[]> {
 async function embedBatchWithRetry(texts: string[]): Promise<Float32Array[]> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await getClient().embeddings.create({
-        model: MODEL,
-        input: texts,
-        dimensions: DIMENSIONS,
-      });
+      const response = await getClient().embeddings.create(
+        PROVIDER === 'voyage'
+          ? {
+              model: MODEL,
+              input: texts,
+            }
+          : {
+              model: MODEL,
+              input: texts,
+              dimensions: DIMENSIONS,
+            },
+      );
 
       // Sort by index to maintain order
       const sorted = response.data.sort((a, b) => a.index - b.index);

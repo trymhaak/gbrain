@@ -9,6 +9,7 @@ let maxConcurrentEmbedCalls = 0;
 let totalEmbedCalls = 0;
 
 mock.module('../src/core/embedding.ts', () => ({
+  EMBEDDING_MODEL: 'text-embedding-3-large',
   embedBatch: async (texts: string[]) => {
     activeEmbedCalls++;
     totalEmbedCalls++;
@@ -124,5 +125,98 @@ describe('runEmbed --all (parallel)', () => {
 
     // Only the stale page triggers an embedBatch call.
     expect(totalEmbedCalls).toBe(1);
+  });
+
+  test('preserves existing embedding metadata on fresh chunks when embedding a single page', async () => {
+    const existingEmbedding = new Float32Array([1, 2, 3]);
+    const chunks = [
+      {
+        chunk_index: 0,
+        chunk_text: 'already embedded',
+        chunk_source: 'compiled_truth',
+        embedded_at: '2026-01-01',
+        embedding: existingEmbedding,
+        model: 'legacy-model',
+        token_count: 4,
+      },
+      {
+        chunk_index: 1,
+        chunk_text: 'stale chunk',
+        chunk_source: 'timeline',
+        embedded_at: null,
+        token_count: 3,
+      },
+    ];
+    let updatedChunks: any[] | undefined;
+
+    const engine = mockEngine({
+      getPage: async () => ({ slug: 'page-1', compiled_truth: 'x', timeline: 'y' }),
+      getChunks: async () => chunks,
+      upsertChunks: async (_slug: string, nextChunks: any[]) => {
+        updatedChunks = nextChunks;
+      },
+    });
+
+    await runEmbed(engine, ['page-1']);
+
+    expect(updatedChunks).toBeTruthy();
+    expect(updatedChunks).toHaveLength(2);
+
+    const freshChunk = updatedChunks!.find((chunk: any) => chunk.chunk_index === 0);
+    const staleChunk = updatedChunks!.find((chunk: any) => chunk.chunk_index === 1);
+
+    expect(freshChunk.embedding).toBe(existingEmbedding);
+    expect(freshChunk.model).toBe('legacy-model');
+    expect(staleChunk.embedding).toBeInstanceOf(Float32Array);
+    expect(staleChunk.model).toBe('text-embedding-3-large');
+  });
+
+  test('preserves existing embedding metadata on fresh chunks when embedding stale pages in bulk', async () => {
+    const existingEmbedding = new Float32Array([4, 5, 6]);
+    const pages = [{ slug: 'page-1' }];
+    const chunksBySlug = new Map<string, any[]>([
+      ['page-1', [
+        {
+          chunk_index: 0,
+          chunk_text: 'already embedded',
+          chunk_source: 'compiled_truth',
+          embedded_at: '2026-01-01',
+          embedding: existingEmbedding,
+          model: 'legacy-model',
+          token_count: 4,
+        },
+        {
+          chunk_index: 1,
+          chunk_text: 'stale chunk',
+          chunk_source: 'timeline',
+          embedded_at: null,
+          token_count: 3,
+        },
+      ]],
+    ]);
+    let updatedChunks: any[] | undefined;
+
+    const engine = mockEngine({
+      listPages: async () => pages,
+      getChunks: async (slug: string) => chunksBySlug.get(slug) || [],
+      upsertChunks: async (_slug: string, nextChunks: any[]) => {
+        updatedChunks = nextChunks;
+      },
+    });
+
+    process.env.GBRAIN_EMBED_CONCURRENCY = '1';
+
+    await runEmbed(engine, ['--stale']);
+
+    expect(updatedChunks).toBeTruthy();
+    expect(updatedChunks).toHaveLength(2);
+
+    const freshChunk = updatedChunks!.find((chunk: any) => chunk.chunk_index === 0);
+    const staleChunk = updatedChunks!.find((chunk: any) => chunk.chunk_index === 1);
+
+    expect(freshChunk.embedding).toBe(existingEmbedding);
+    expect(freshChunk.model).toBe('legacy-model');
+    expect(staleChunk.embedding).toBeInstanceOf(Float32Array);
+    expect(staleChunk.model).toBe('text-embedding-3-large');
   });
 });
